@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netinet/if_ether.h>
+#include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
 
 #define ETH_SIZE 14
@@ -19,6 +20,7 @@ struct ip* ip_header(const u_char *packet);
 struct ether_header* eth_header(const u_char *packet);
 struct ether_arp* arp_header(const u_char *packet);
 struct tcphdr* tcp_header(const u_char *packet, int h_len);
+struct icmp* icmp_header(const u_char *packet, int h_len);
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, 
     const u_char *packet);
@@ -135,6 +137,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
     const struct ip *ip_h = NULL;
     const struct tcphdr *tcp_h = NULL;
     const struct ether_arp *arp_h = NULL;
+    const struct icmp *icmp_h = NULL;
 
     char *src, *dst;
     char s_mac[25], d_mac[25], s_ip[25], d_ip[25];
@@ -144,10 +147,12 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
     int is_tcp = 0;
     int is_ip = 0;
     int is_arp = 0;
+    int is_icmp = 0;
 
     ethernet = (struct ether_header*)(packet);
     
-    printf("%x\n", ETHERTYPE_IP);
+    printf("--------------------------------------------\n");
+
     switch(ntohs(ethernet->ether_type)) {
         case ETHERTYPE_IP:
             ip_h = ip_header(packet);
@@ -188,6 +193,10 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
                 tcp_h = tcp_header(packet, (ip_h->ip_hl << 2));
                 is_tcp = 1;
                 break;
+            case IPPROTO_ICMP:
+                icmp_h = icmp_header(packet, (ip_h->ip_hl <<2));
+                is_icmp = 1;
+                break;
             default:
                 printf("Not a TCP Packet\n");
                 break;
@@ -199,7 +208,30 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
         dst = strdup(inet_ntoa(ip_h->ip_dst));
 
         printf("%s >>>> %s\n", src, dst);
-        printf("--------------------------------------\n");
+        //printf("--------------------------------------\n");
+    }
+
+    if(is_icmp) {
+        src = strdup(inet_ntoa(ip_h->ip_src));
+        dst = strdup(inet_ntoa(ip_h->ip_dst));
+        
+        switch(icmp_h->icmp_type) {
+            case ICMP_ECHO:
+                printf("ICMP ECHO Request %s >>>> %s\n", src, dst);
+                break;
+            case ICMP_ECHOREPLY:
+                printf("ICMP ECHO Reply %s >>>> %s\n", src, dst);
+                break;
+            case ICMP_TIMXCEED:
+                printf("TTL exceeded %s >>>> %s\n", src, dst);
+                break;
+            default:
+                printf("ICMP type unhandled\n");
+                break;
+        }
+
+        return;
+
     }
     /*
     if(ntohs(ethernet->ether_type) == ETHERTYPE_IP) {
@@ -226,6 +258,13 @@ struct ip* ip_header(const u_char *packet) {
     //printf("From: %s\n", inet_ntoa(ip_h->ip_src));
     //printf("To: %s\n", inet_ntoa(ip_h->ip_dst));
     return ip_h;
+}
+
+struct icmp* icmp_header(const u_char *packet, int h_len) {
+    struct icmp *icmp_h;
+
+    icmp_h = (struct icmp*)(packet + ETH_SIZE + h_len);
+    return icmp_h;
 }
 
 struct ether_arp* arp_header(const u_char *packet) {
