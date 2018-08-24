@@ -7,6 +7,7 @@
 #include <netinet/ip.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <netinet/if_ether.h>
 #include <arpa/inet.h>
 
 #define ETH_SIZE 14
@@ -16,6 +17,7 @@ int filter(pcap_t *handle, char *exp, char *dev);
 
 struct ip* ip_header(const u_char *packet);
 struct ether_header* eth_header(const u_char *packet);
+struct ether_arp* arp_header(const u_char *packet);
 struct tcphdr* tcp_header(const u_char *packet, int h_len);
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, 
@@ -110,19 +112,88 @@ int filter(pcap_t *handle, char *exp, char *dev) {
         return 2;
     }
 }
-    
+
+void mac_str(const u_char *i_mac, char *mac, int size) {
+
+    snprintf(mac, size, "%02x:%02x:%02x:%02x:%02x:%02x\0",
+            i_mac[0], i_mac[1], i_mac[2], i_mac[3], i_mac[4], i_mac[5]);
+
+    return;
+}
+
+void arp_ipstr(const u_int8_t *ip, char *buf, int size) {
+
+    snprintf(buf, size, "%u.%u.%u.%u\0", ip[0], ip[1], ip[2], ip[3]);
+
+    return;
+}
+
 void got_packet(u_char *args, const struct pcap_pkthdr *header,
         const u_char *packet) {
 
-    const struct ether_header *ethernet;
-    const struct ip *ip_h;
-    const struct tcphdr *tcp_h;
-    
+    const struct ether_header *ethernet = NULL;
+    const struct ip *ip_h = NULL;
+    const struct tcphdr *tcp_h = NULL;
+    const struct ether_arp *arp_h = NULL;
+
     char *src, *dst;
+    char s_mac[25], d_mac[25], s_ip[25], d_ip[25];
     int s_port, d_port;
+    
+
+    int is_tcp = 0;
+    int is_ip = 0;
+    int is_arp = 0;
 
     ethernet = (struct ether_header*)(packet);
     
+    printf("%x\n", ETHERTYPE_IP);
+    switch(ntohs(ethernet->ether_type)) {
+        case ETHERTYPE_IP:
+            ip_h = ip_header(packet);
+            is_ip = 1;
+            break;
+        case ETHERTYPE_ARP:
+            arp_h = arp_header(packet);
+            is_arp = 1;
+            break;
+        default:
+            printf("Not an IP packet\n");
+            break;
+    }
+
+    if(is_arp) {
+        mac_str(arp_h->arp_sha, s_mac, sizeof(s_mac));
+        mac_str(arp_h->arp_tha, d_mac, sizeof(d_mac));
+        
+        arp_ipstr(arp_h->arp_spa, s_ip, sizeof(s_ip));
+        arp_ipstr(arp_h->arp_tpa, d_ip, sizeof(d_ip));
+
+        printf("%s >>>> %s\n", s_mac, d_mac);
+        printf("%s >>>> %s\n", s_ip, d_ip);
+        return;
+    }
+
+    if(is_ip) {
+        switch(ip_h->ip_p) {
+            case IPPROTO_TCP:
+                tcp_h = tcp_header(packet, (ip_h->ip_hl << 2));
+                is_tcp = 1;
+                break;
+            default:
+                printf("Not a TCP Packet\n");
+                break;
+        }
+    }
+
+    if(is_tcp) {
+        src = strdup(inet_ntoa(ip_h->ip_src));
+        dst = strdup(inet_ntoa(ip_h->ip_dst));
+
+        printf("%s >>>> %s\n", src, dst);
+        printf("--------------------------------------\n");
+    }
+    /*
     if(ntohs(ethernet->ether_type) == ETHERTYPE_IP) {
         //printf("Ethernet type hex: %x is an IP packet\n", 
         //        ethernet->ether_dhost[0]);i
@@ -136,7 +207,8 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
 
         printf("%s:%d >>> %s:%d\n",src, s_port, dst, d_port);
         printf("--------------------------------------\n");
-    }
+    }*/
+
 }
 
 struct ip* ip_header(const u_char *packet) {
@@ -146,6 +218,13 @@ struct ip* ip_header(const u_char *packet) {
     //printf("From: %s\n", inet_ntoa(ip_h->ip_src));
     //printf("To: %s\n", inet_ntoa(ip_h->ip_dst));
     return ip_h;
+}
+
+struct ether_arp* arp_header(const u_char *packet) {
+    struct ether_arp *arp_h;
+
+    arp_h = (struct ether_arp*)(packet + ETH_SIZE);
+    return arp_h;
 }
 
 struct ether_header* eth_header(const u_char *packet) {
