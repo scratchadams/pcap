@@ -168,9 +168,17 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header,
         
         arp_ipstr(arp_h->arp_spa, s_ip, sizeof(s_ip));
         arp_ipstr(arp_h->arp_tpa, d_ip, sizeof(d_ip));
+        
+        if(ntohs(arp_h->ea_hdr.ar_op) == 1) {
+            printf("ARP Request who has %s tell %s\n", d_ip, s_ip);
+            return;
+        } else {
+            printf("ARP Reply %s is at %s\n", s_ip, s_mac);
+            return;
+        }
 
-        printf("%s >>>> %s\n", s_mac, d_mac);
-        printf("%s >>>> %s\n", s_ip, d_ip);
+        //printf("%s >>>> %s\n", s_mac, d_mac);
+        //printf("%s >>>> %s\n", s_ip, d_ip);
         return;
     }
 
